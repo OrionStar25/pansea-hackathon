@@ -57,6 +57,8 @@ def create_sealion_prompt(metadata, gpt_output, prompt_template):
         "[Paste the AI-generated description of the photograph here]", 
         gpt_output
     )
+
+    print(filled_prompt)
     
     return filled_prompt
 
@@ -153,7 +155,7 @@ def main():
         if image_files:
             try:
                 image = Image.open(image_files[0])
-                st.image(image, caption=f"Historical Singapore Image: {image_files[0]}", use_column_width=True)
+                st.image(image, caption=f"Historical Singapore Image: {image_files[0]}", use_container_width=True)
             except Exception as e:
                 st.error(f"Could not load image: {str(e)}")
         else:

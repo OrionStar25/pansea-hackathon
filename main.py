@@ -1,6 +1,5 @@
 import streamlit as st
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from openai import OpenAI
 from PIL import Image
 import os
 
@@ -12,22 +11,21 @@ st.set_page_config(
 )
 
 @st.cache_resource
-def load_model():
-    """Load the SEA-LION model and tokenizer"""
-    model_name = "aisingapore/Llama-SEA-LION-v3-8B"
-    
+def get_client():
+    """Initialize OpenAI client for Hugging Face inference"""
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16,
-            device_map="auto",
-            load_in_8bit=True  # Use quantization to reduce memory usage
+        # Read HF token from file
+        with open('hf_token.txt', 'r') as f:
+            hf_token = f.read().strip()
+        
+        client = OpenAI(
+            base_url="https://router.huggingface.co/v1",
+            api_key=hf_token,
         )
-        return tokenizer, model
+        return client
     except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
-        return None, None
+        st.error(f"Error initializing client: {str(e)}")
+        return None
 
 def load_files():
     """Load metadata, GPT output, and SEA-LION prompt template"""
@@ -79,32 +77,25 @@ def create_sealion_prompt(metadata, gpt_output, prompt_template):
     
     return filled_prompt
 
-def generate_sealion_response(tokenizer, model, prompt):
-    """Generate response from SEA-LION model"""
-    if tokenizer is None or model is None:
-        return "Model not available. Please check the model loading."
+def generate_sealion_response(client, prompt):
+    """Generate response from SEA-LION model using Hugging Face inference API"""
+    if client is None:
+        return "Client not available. Please check the HF_TOKEN environment variable."
     
     try:
-        # Tokenize input
-        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=4096)
+        completion = client.chat.completions.create(
+            model="aisingapore/Llama-SEA-LION-v3-8B-IT:featherless-ai",
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            max_tokens=1500,
+            temperature=0.7,
+        )
         
-        # Generate response
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=1500,
-                temperature=0.7,
-                do_sample=True,
-                pad_token_id=tokenizer.eos_token_id
-            )
-        
-        # Decode response
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # Extract only the generated part (remove the input prompt)
-        generated_text = response[len(prompt):].strip()
-        
-        return generated_text
+        return completion.choices[0].message.content
     except Exception as e:
         return f"Error generating response: {str(e)}"
 
@@ -160,7 +151,7 @@ def main():
         if image_files:
             try:
                 image = Image.open(image_files[0])
-                st.image(image, caption="Historical Singapore Image", use_column_width=True)
+                st.image(image, caption="Historical Singapore Image", use_container_width=True)
             except Exception as e:
                 st.error(f"Could not load image: {str(e)}")
         else:
@@ -171,23 +162,24 @@ def main():
         
         # Generate analysis button
         if st.button("🚀 Generate SEA-LION Analysis", type="primary"):
-            with st.spinner("Loading SEA-LION model..."):
-                tokenizer, model = load_model()
+            with st.spinner("Initializing client..."):
+                client = get_client()
             
-            if tokenizer and model:
+            if client:
                 # Create the prompt
                 sealion_prompt = create_sealion_prompt(metadata, gpt_output, prompt_template)
                 
                 with st.spinner("Generating SEA-LION analysis..."):
-                    sealion_response = generate_sealion_response(tokenizer, model, sealion_prompt)
+                    sealion_response = generate_sealion_response(client, sealion_prompt)
                 
                 # Store in session state
                 st.session_state.sealion_response = sealion_response
                 st.session_state.gpt_response = gpt_output
+                st.session_state.sealion_prompt = sealion_prompt
         
         # Display responses
         if hasattr(st.session_state, 'sealion_response'):
-            tab1, tab2, tab3 = st.tabs(["📊 Comparison", "🤖 GPT-4o Response", "🦁 SEA-LION Response"])
+            tab1, tab2, tab3, tab4 = st.tabs(["📊 Comparison", "🤖 GPT-4o Response", "🦁 SEA-LION Response", "📝 SEA-LION Prompt"])
             
             with tab1:
                 st.subheader("📈 Key Differences")
@@ -210,6 +202,11 @@ def main():
             with tab3:
                 st.markdown("### SEA-LION Analysis")
                 st.markdown(st.session_state.sealion_response)
+            
+            with tab4:
+                st.markdown("### SEA-LION Prompt")
+                st.markdown("This is the complete prompt that was sent to the SEA-LION model:")
+                st.code(st.session_state.sealion_prompt, language="text")
 
 if __name__ == "__main__":
     main()
