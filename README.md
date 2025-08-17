@@ -23,7 +23,7 @@ This Streamlit application compares historical image analysis between GPT-4o and
 
 3. Run the Streamlit app:
    ```bash
-   streamlit run app_demo.py
+   streamlit run main.py
    ```
 
 ## Usage

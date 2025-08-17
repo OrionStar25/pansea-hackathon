@@ -10,6 +10,25 @@ st.set_page_config(
     layout="wide"
 )
 
+# Custom CSS for styling
+st.markdown("""
+<style>
+div.stButton > button:first-child {
+    background: linear-gradient(90deg, #FF6B6B, #4ECDC4);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-weight: bold;
+    transition: all 0.3s ease;
+}
+div.stButton > button:first-child:hover {
+    background: linear-gradient(90deg, #FF5252, #26C6DA);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+</style>
+""", unsafe_allow_html=True)
+
 @st.cache_resource
 def get_client():
     """Initialize OpenAI client for Hugging Face inference"""
@@ -99,24 +118,44 @@ def generate_sealion_response(client, prompt):
     except Exception as e:
         return f"Error generating response: {str(e)}"
 
-def highlight_differences(gpt_text, sealion_text):
-    """Identify and highlight key differences between GPT and SEA-LION responses"""
-    differences = []
+def highlight_differences(gpt_text, sealion_text, client):
+    """Use SEA-LION to identify and highlight key differences between GPT and SEA-LION responses"""
+    if client is None:
+        return ["Error: Client not available for difference analysis"]
     
-    # Simple keyword-based analysis for demonstration
-    gpt_keywords = set(gpt_text.lower().split())
-    sealion_keywords = set(sealion_text.lower().split())
-    
-    unique_to_gpt = gpt_keywords - sealion_keywords
-    unique_to_sealion = sealion_keywords - gpt_keywords
-    
-    if unique_to_gpt:
-        differences.append(f"**Unique to GPT-4o:** {', '.join(list(unique_to_gpt)[:10])}")
-    
-    if unique_to_sealion:
-        differences.append(f"**Unique to SEA-LION:** {', '.join(list(unique_to_sealion)[:10])}")
-    
-    return differences
+    try:
+        comparison_prompt = f"""You are an expert analyst. Please analyze and compare these two AI responses about the same historical Singapore image. Identify the key differences in:
+
+1. **Content and Details**: What information is unique to each response?
+2. **Historical Context**: How do they differ in historical interpretation?
+3. **Cultural Insights**: What cultural perspectives are emphasized differently?
+4. **Analytical Approach**: How do their analytical styles differ?
+
+**GPT-4o Response:**
+{gpt_text}
+
+**SEA-LION Response:**
+{sealion_text}
+
+Please provide a structured comparison highlighting the most significant differences. Be specific and analytical."""
+
+        completion = client.chat.completions.create(
+            model="aisingapore/Llama-SEA-LION-v3-8B-IT:featherless-ai",
+            messages=[
+                {
+                    "role": "user",
+                    "content": comparison_prompt
+                }
+            ],
+            max_tokens=1000,
+            temperature=0.3,  # Lower temperature for more focused analysis
+        )
+        
+        analysis = completion.choices[0].message.content
+        return [analysis]
+        
+    except Exception as e:
+        return [f"Error generating difference analysis: {str(e)}"]
 
 def main():
     st.title("🏛️ Historical Image Analysis Chatbot")
@@ -128,16 +167,6 @@ def main():
     if metadata is None:
         st.error("Could not load required files. Please ensure metadata.txt, gpt-4o_output.md, and sealion_prompt.md exist.")
         return
-    
-    # Sidebar with file contents
-    with st.sidebar:
-        st.header("📄 Source Files")
-        
-        with st.expander("Metadata"):
-            st.text(metadata)
-        
-        with st.expander("GPT-4o Output (Preview)"):
-            st.markdown(gpt_output[:500] + "..." if len(gpt_output) > 500 else gpt_output)
     
     # Main interface
     col1, col2 = st.columns([1, 2])
@@ -160,6 +189,12 @@ def main():
     with col2:
         st.header("🤖 AI Analysis Comparison")
         
+        # Always show GPT response first (collapsible)
+        with st.expander("🤖 GPT-4o Analysis", expanded=True):
+            st.markdown(gpt_output)
+        
+        st.markdown("---")
+        
         # Generate analysis button
         if st.button("🚀 Generate SEA-LION Analysis", type="primary"):
             with st.spinner("Initializing client..."):
@@ -176,37 +211,53 @@ def main():
                 st.session_state.sealion_response = sealion_response
                 st.session_state.gpt_response = gpt_output
                 st.session_state.sealion_prompt = sealion_prompt
+                st.session_state.client = client
         
-        # Display responses
+        # Show new tabs after SEA-LION analysis is generated
         if hasattr(st.session_state, 'sealion_response'):
-            tab1, tab2, tab3, tab4 = st.tabs(["📊 Comparison", "🤖 GPT-4o Response", "🦁 SEA-LION Response", "📝 SEA-LION Prompt"])
+            tab1, tab2, tab3 = st.tabs(["Metadata", "�📝 SEA-LION Prompt", "🦁 SEA-LION Response"])
             
             with tab1:
-                st.subheader("📈 Key Differences")
-                differences = highlight_differences(st.session_state.gpt_response, st.session_state.sealion_response)
-                
-                for diff in differences:
-                    st.markdown(diff)
-                
-                # Response length comparison
-                col_stats1, col_stats2 = st.columns(2)
-                with col_stats1:
-                    st.metric("GPT-4o Length", f"{len(st.session_state.gpt_response)} chars")
-                with col_stats2:
-                    st.metric("SEA-LION Length", f"{len(st.session_state.sealion_response)} chars")
+                with st.expander("Image Metadata", expanded=True):
+                    st.text(metadata)
             
             with tab2:
-                st.markdown("### GPT-4o Analysis")
-                st.markdown(st.session_state.gpt_response)
+                with st.expander("�📝 Prompt sent to SEA-LION", expanded=False):
+                    st.code(st.session_state.sealion_prompt, language="text")
             
             with tab3:
-                st.markdown("### SEA-LION Analysis")
-                st.markdown(st.session_state.sealion_response)
+                with st.expander("🦁 SEA-LION Analysis", expanded=True):
+                    st.markdown(st.session_state.sealion_response)
             
-            with tab4:
-                st.markdown("### SEA-LION Prompt")
-                st.markdown("This is the complete prompt that was sent to the SEA-LION model:")
-                st.code(st.session_state.sealion_prompt, language="text")
+            st.markdown("---")
+            
+            # Generate detailed comparison button with nice styling
+            if st.button("📊 Generate Detailed Comparison", 
+                        help="Use SEA-LION to analyze differences between responses",
+                        use_container_width=True):
+                with st.spinner("Analyzing differences using SEA-LION..."):
+                    if hasattr(st.session_state, 'client'):
+                        differences = highlight_differences(
+                            st.session_state.gpt_response, 
+                            st.session_state.sealion_response, 
+                            st.session_state.client
+                        )
+                        st.session_state.differences = differences
+                    else:
+                        st.session_state.differences = ["Error: Client not available for difference analysis"]
+            
+            # Show comparison results if generated
+            if hasattr(st.session_state, 'differences'):
+                with st.expander("📈 Detailed Analysis of Differences", expanded=True):
+                    for diff in st.session_state.differences:
+                        st.markdown(diff)
+                    
+                    # Response length comparison
+                    col_stats1, col_stats2 = st.columns(2)
+                    with col_stats1:
+                        st.metric("GPT-4o Length", f"{len(st.session_state.gpt_response)} chars")
+                    with col_stats2:
+                        st.metric("SEA-LION Length", f"{len(st.session_state.sealion_response)} chars")
 
 if __name__ == "__main__":
     main()
