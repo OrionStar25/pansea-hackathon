@@ -33,13 +33,13 @@ div.stButton > button:first-child:hover {
 def get_client():
     """Initialize OpenAI client for Hugging Face inference"""
     try:
-        # Read HF token from file
-        with open('hf_token.txt', 'r') as f:
-            hf_token = f.read().strip()
+        # # Read HF token from file
+        # with open('hf_token.txt', 'r') as f:
+        #     hf_token = f.read().strip()
         
         client = OpenAI(
             base_url="https://router.huggingface.co/v1",
-            api_key=hf_token,
+            api_key=os.getenv("HF_TOKEN"),
         )
         return client
     except Exception as e:
